@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>幅チェッカー</title>
+<style>
+/* 上に操作の帯、下に端末の枠。枠は画面に収まるよう縮小できる */
+:root {
+  --bg: #eef0f2;
+  --panel: #ffffff;
+  --line: #d5d9de;
+  --fg: #1d2329;
+  --muted: #66707a;
+  --accent: #0f6b5c;
+  --accent-fg: #ffffff;
+  --frame: #20262c;
+  --font: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15191d; --panel: #1f252b; --line: #343c44; --fg: #e8ecef;
+    --muted: #9aa4ad; --accent: #4fc2a9; --accent-fg: #0d1a17; --frame: #000000;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font);
+  display: flex; flex-direction: column;
+}
+header {
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 10px max(14px, env(safe-area-inset-left));
+  display: grid; gap: 8px;
+}
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+h1 { font-size: 15px; margin: 0 8px 0 0; letter-spacing: .02em; white-space: nowrap; }
+form.url { display: flex; gap: 6px; flex: 1 1 320px; min-width: 0; }
+input, select, button {
+  font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px; padding: 7px 10px; min-height: 36px;
+}
+input[type="url"] { flex: 1; min-width: 0; font-family: var(--mono); font-size: 13px; }
+input[type="number"] { width: 78px; font-variant-numeric: tabular-nums; }
+button { cursor: pointer; background: var(--panel); white-space: nowrap; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.chip small { opacity: .75; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+label.size { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.note { color: var(--muted); font-size: 12px; }
+main {
+  flex: 1; overflow: auto; padding: 16px max(14px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  display: flex; gap: 24px; align-items: flex-start; justify-content: center; flex-wrap: wrap;
+}
+.device { display: grid; gap: 6px; justify-items: center; }
+.device .cap { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.device .cap b { color: var(--fg); font-weight: 600; }
+.box { position: relative; overflow: hidden; border: 6px solid var(--frame); border-radius: 18px; background: #fff; }
+.box iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: #fff; }
+.empty { max-width: 34em; margin: 40px auto; color: var(--muted); text-align: left; }
+.empty h2 { color: var(--fg); font-size: 16px; }
+@media (max-width: 600px) {
+  h1 { width: 100%; }
+  .sep { display: none; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <h1>幅チェッカー</h1>
+    <form class="url" id="urlForm">
+      <input type="url" id="url" list="recent" placeholder="https://v1.example-recruit.pages.dev/" required>
+      <datalist id="recent"></datalist>
+      <button class="primary" type="submit">表示</button>
+    </form>
+  </div>
+  <div class="row" id="presets" role="group" aria-label="端末の幅"></div>
+  <div class="row">
+    <label class="size">幅 <input type="number" id="w" min="200" max="3000" step="1"></label>
+    <label class="size">高さ <input type="number" id="h" min="200" max="3000" step="1"></label>
+    <button type="button" id="rotate">縦横を入れ替え</button>
+    <span class="sep"></span>
+    <label class="size"><input type="checkbox" id="fit" checked> 画面に合わせて縮小</label>
+    <label class="size"><input type="checkbox" id="compare"> 3つ並べる</label>
+    <span class="sep"></span>
+    <button type="button" id="reload">再読み込み</button>
+    <button type="button" id="share">この表示の URL をコピー</button>
+  </div>
+</header>
+<main id="stage"></main>
+
+<script>
+const PRESETS = [
+  { id: "se",    label: "iPhone SE",      w: 375,  h: 667 },
+  { id: "ip",    label: "iPhone",         w: 390,  h: 844 },
+  { id: "max",   label: "iPhone Pro Max", w: 440,  h: 956 },
+  { id: "mini",  label: "iPad mini",      w: 744,  h: 1133 },
+  { id: "ipad",  label: "iPad",           w: 820,  h: 1180 },
+  { id: "note",  label: "ノートPC",        w: 1280, h: 800 },
+  { id: "pc",    label: "PC",             w: 1440, h: 900 },
+];
+const COMPARE = ["ip", "ipad", "pc"];
+const $ = (id) => document.getElementById(id);
+const state = { url: "", w: 390, h: 844, fit: true, compare: false };
+
+function store(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
+function load(key, def) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
+
+function normalize(u) {
+  u = (u || "").trim();
+  if (!u) return "";
+  if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+  return u;
+}
+
+function renderPresets() {
+  const box = $("presets");
+  box.textContent = "";
+  for (const p of PRESETS) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip";
+    b.setAttribute("aria-pressed", String(!state.compare && p.w === state.w && p.h === state.h));
+    b.append(p.label);
+    const s = document.createElement("small"); s.textContent = p.w; b.append(s);
+    b.addEventListener("click", () => { state.w = p.w; state.h = p.h; state.compare = false; sync(); });
+    box.append(b);
+  }
+}
+
+function renderRecent() {
+  const list = $("recent"); list.textContent = "";
+  for (const u of load("recent", [])) { const o = document.createElement("option"); o.value = u; list.append(o); }
+}
+
+function remember(u) {
+  const r = load("recent", []).filter((x) => x !== u);
+  r.unshift(u); store("recent", r.slice(0, 12)); renderRecent();
+}
+
+function device(w, h, label) {
+  const stage = $("stage");
+  const wrap = document.createElement("div"); wrap.className = "device";
+  const cap = document.createElement("div"); cap.className = "cap";
+  const b = document.createElement("b"); b.textContent = label ? label + " " : "";
+  cap.append(b, `${w} × ${h}`);
+  const box = document.createElement("div"); box.className = "box";
+  const f = document.createElement("iframe");
+  f.src = state.url; f.width = w; f.height = h; f.title = `${w}px で表示`;
+  f.setAttribute("loading", "lazy");
+  box.append(f);
+  wrap.append(cap, box);
+  stage.append(wrap);
+  return { box, f, w, h, cap };
+}
+
+function layout(items) {
+  const stage = $("stage");
+  const cs = getComputedStyle(stage);
+  const availW = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const availH = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 30;
+  const border = 12;
+  const gap = 24;
+  let per = availW;
+  if (items.length > 1 && availW > 700) per = (availW - gap * (items.length - 1)) / items.length;
+  for (const it of items) {
+    let s = 1;
+    if (state.fit) {
+      s = Math.min(1, (per - border) / it.w);
+      if (items.length === 1 && availH > 200) s = Math.min(s, (availH - border) / it.h);
+    }
+    it.f.style.width = it.w + "px"; it.f.style.height = it.h + "px";
+    it.f.style.transform = s === 1 ? "none" : `scale(${s})`;
+    it.box.style.width = Math.round(it.w * s) + border + "px";
+    it.box.style.height = Math.round(it.h * s) + border + "px";
+    if (s < 1) it.cap.append(`（${Math.round(s * 100)}% に縮小）`);
+  }
+}
+
+function render() {
+  const stage = $("stage"); stage.textContent = "";
+  if (!state.url) {
+    const d = document.createElement("div"); d.className = "empty";
+    d.innerHTML = "<h2>URL を入れて「表示」を押してください</h2>" +
+      "<p>入れたサイトを、選んだ端末の幅で表示します。開いた折りたたみスマホや iPad からでも、iPhone と同じ幅で確認できます。</p>" +
+      "<p class=\"note\">サイトの側で埋め込みを禁止していると、枠の中が白いままになります（Google や SNS など）。自分たちが公開した LP は表示できます。</p>";
+    stage.append(d); return;
+  }
+  const items = [];
+  if (state.compare) {
+    for (const id of COMPARE) { const p = PRESETS.find((x) => x.id === id); items.push(device(p.w, p.h, p.label)); }
+  } else {
+    const p = PRESETS.find((x) => x.w === state.w && x.h === state.h);
+    items.push(device(state.w, state.h, p ? p.label : "自由な幅"));
+  }
+  layout(items);
+}
+
+function writeQuery() {
+  const q = new URLSearchParams();
+  if (state.url) q.set("url", state.url);
+  q.set("w", state.w); q.set("h", state.h);
+  if (state.compare) q.set("compare", "1");
+  history.replaceState(null, "", "?" + q.toString());
+}
+
+function sync() {
+  $("url").value = state.url; $("w").value = state.w; $("h").value = state.h;
+  $("fit").checked = state.fit; $("compare").checked = state.compare;
+  renderPresets(); writeQuery(); render();
+  store("last", { w: state.w, h: state.h, fit: state.fit, compare: state.compare });
+}
+
+$("urlForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  state.url = normalize($("url").value);
+  if (state.url) remember(state.url);
+  sync();
+});
+$("w").addEventListener("change", () => { const v = parseInt($("w").value, 10); if (v >= 200) { state.w = v; state.compare = false; sync(); } });
+$("h").addEventListener("change", () => { const v = parseInt($("h").value, 10); if (v >= 200) { state.h = v; state.compare = false; sync(); } });
+$("rotate").addEventListener("click", () => { [state.w, state.h] = [state.h, state.w]; state.compare = false; sync(); });
+$("fit").addEventListener("change", () => { state.fit = $("fit").checked; sync(); });
+$("compare").addEventListener("change", () => { state.compare = $("compare").checked; sync(); });
+$("reload").addEventListener("click", render);
+$("share").addEventListener("click", async () => {
+  const btn = $("share");
+  try { await navigator.clipboard.writeText(location.href); btn.textContent = "コピーしました"; }
+  catch (e) { btn.textContent = "コピーできませんでした（アドレス欄から）"; }
+  setTimeout(() => { btn.textContent = "この表示の URL をコピー"; }, 2000);
+});
+let t; addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 150); });
+
+(function init() {
+  Object.assign(state, load("last", {}));
+  const q = new URLSearchParams(location.search);
+  if (q.get("url")) state.url = normalize(q.get("url"));
+  if (q.get("w")) state.w = parseInt(q.get("w"), 10) || state.w;
+  if (q.get("h")) state.h = parseInt(q.get("h"), 10) || state.h;
+  if (q.has("compare")) state.compare = q.get("compare") === "1";
+  renderRecent(); sync();
+})();
+</script>
+</body>
+</html>
