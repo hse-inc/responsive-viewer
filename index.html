@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
-<title>幅チェッカー</title>
+<title>クオリティチェッカー</title>
 <style>
 /* 上に操作の帯、下に端末の枠。枠は画面に収まるよう縮小できる */
 :root {
@@ -133,7 +133,7 @@ body.checking #helpBtn { right: calc(360px + 12px); }
 <body>
 <header>
   <div class="row">
-    <h1>幅チェッカー</h1>
+    <h1>クオリティチェッカー</h1>
     <form class="url" id="urlForm">
       <input type="url" id="url" list="recent" placeholder="https://v1.example-recruit.pages.dev/" required>
       <datalist id="recent"></datalist>
@@ -196,7 +196,7 @@ const CHECKS = {
     { id: "a-late",   t: "後半のページまで1枚目の雰囲気が続き、簡素なページがない", ng: "NG：後半が文字だけで寂しい" },
     { id: "a-strong", t: "各ページに「強い一文」が1つある", ng: "NG：どのページも同じ調子で、目に留まる一文がない" },
     { id: "a-motion", t: "動きが遅くない（ページを開いてから待たされない）", ng: "NG：文字が出そろうまで2秒以上かかる" },
-    { id: "a-phone",  t: "iPhone の実機で触った（スワイプ・ボタン・フォーム）", ng: "幅チェッカーは見た目の確認用。触り心地は実機で" },
+    { id: "a-phone",  t: "iPhone の実機で触った（スワイプ・ボタン・フォーム）", ng: "クオリティチェッカーは見た目の確認用。触り心地は実機で" },
   ],
 };
 const PRESETS = [
