@@ -82,7 +82,46 @@ body.bare header { display: none; }
   width: 44px; height: 44px; padding: 0; border-radius: 50%; opacity: .85;
   box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
 }
-body.bare #showBar { display: grid; }
+body.bare #showBar { display: grid; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 56px); }
+/* 右下の「？」：人が目で見るチェックリスト。サイトを隠さないよう、PC は右・狭い画面は下にパネルを出す */
+#helpBtn {
+  position: fixed; z-index: 11; display: grid; place-items: center;
+  right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom));
+  width: 44px; height: 44px; padding: 0; border-radius: 50%;
+  background: var(--accent); color: var(--accent-fg); border-color: var(--accent);
+  font-size: 20px; font-weight: 700; box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
+}
+#check {
+  position: fixed; z-index: 12; display: none; flex-direction: column;
+  background: var(--panel); border-left: 1px solid var(--line);
+  top: 0; right: 0; bottom: 0; width: 360px;
+  padding: max(12px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) 14px;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, .12);
+}
+body.checking #check { display: flex; }
+body.checking { padding-right: 360px; }
+body.checking #helpBtn { right: calc(360px + 12px); }
+#check .top { display: flex; align-items: center; gap: 8px; }
+#check h2 { font-size: 15px; margin: 0; flex: 1; }
+#check .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+#check .tabs { display: flex; gap: 6px; margin: 10px 0 6px; }
+#check .tabs button { flex: 1; }
+#check .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+#check ol { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; }
+#check li { border-bottom: 1px solid var(--line); }
+#check li label { display: grid; grid-template-columns: 22px 1fr; gap: 4px 8px; padding: 9px 2px; cursor: pointer; }
+#check li input { width: 18px; height: 18px; min-height: 0; margin: 2px 0 0; accent-color: var(--accent); }
+#check li .ng { grid-column: 2; color: var(--muted); font-size: 12px; }
+#check li input:checked + span { color: var(--muted); text-decoration: line-through; }
+#check .foot { display: flex; gap: 6px; padding-top: 10px; }
+#check .foot button { flex: 1; }
+#check .lead { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+@media (max-width: 900px) {
+  #check { top: auto; left: 0; width: auto; height: 55vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; box-shadow: 0 -4px 16px rgba(0, 0, 0, .15); }
+  body.checking { padding-right: 0; padding-bottom: 55vh; }
+  body.checking #helpBtn { right: max(12px, env(safe-area-inset-right)); bottom: calc(55vh + 12px); }
+  body.checking.bare #showBar { display: none; }
+}
 .empty { max-width: 34em; margin: 40px auto; color: var(--muted); text-align: left; }
 .empty h2 { color: var(--fg); font-size: 16px; }
 @media (max-width: 600px) {
@@ -120,7 +159,46 @@ body.bare #showBar { display: grid; }
   <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
 </button>
 
+<button type="button" id="helpBtn" aria-label="目で見るチェックリストを開く" aria-expanded="false" aria-controls="check" title="目で見るチェックリスト">?</button>
+<aside id="check" aria-label="目で見るチェックリスト">
+  <div class="top">
+    <h2>目で見るチェックリスト</h2>
+    <span class="count" id="checkCount"></span>
+    <button type="button" id="checkClose" aria-label="閉じる">閉じる</button>
+  </div>
+  <p class="lead">検査の道具では見られないところを、人の目で確かめます。チェックは表示中の URL ごとに、このブラウザに残ります。</p>
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tabPage" aria-selected="true">ページごと</button>
+    <button type="button" role="tab" id="tabAll" aria-selected="false">全体</button>
+  </div>
+  <ol id="checkList"></ol>
+  <div class="foot">
+    <button type="button" id="checkReset">リセット</button>
+    <button type="button" class="primary" id="checkCopy">結果をコピー</button>
+  </div>
+</aside>
+
 <script>
+// 人の目で見る項目（どの案件にも共通。案件の名前や先方の情報は入れない）
+const CHECKS = {
+  page: [
+    { id: "p-vbal",  t: "上下の余白がそろっている（ヘッダーの下と、画面の下が同じくらい）", ng: "NG：中身が上に寄り、下だけ大きく空いている" },
+    { id: "p-space", t: "余白が段階で広がっている（行の間 ＜ 段落の間 ＜ 見出しと本文 ＜ まとまりの間）", ng: "NG：見出し・本文・写真が全部同じ間隔で並び、どれが一組か分からない" },
+    { id: "p-font",  t: "文字が小さすぎず、本文が細すぎない。見出しと本文で大きさに差がある", ng: "NG：本文が細くて読みにくい／見出しと本文が同じ大きさ" },
+    { id: "p-break", t: "改行が文節で折れている。助詞だけの行がなく、強調の句が途中で折れていない（iPhone・PC の両方で）", ng: "NG：「大切にしているの／は、」のように文節の途中で折れる" },
+    { id: "p-zip",   t: "〒番号のあとで改行している。電話番号が途中で折れていない", ng: "NG：〒と住所が同じ行に続く／電話番号が2行に分かれる" },
+    { id: "p-over",  t: "文字が写真やイラストに重なって読みにくくなっていない。絵が見切れていない", ng: "NG：明るい写真の上に白い文字／イラストの頭や手が枠で切れる" },
+    { id: "p-photo", t: "写真の大きさが合っている。人物の手や指が崩れていない", ng: "NG：写真が小さく寂しい／指の数や向きがおかしい" },
+    { id: "p-align", t: "同じ役割の見出し・ラベルが、前後のページと同じ大きさ・位置になっている", ng: "NG：ページごとに見出しの大きさや位置がばらばら" },
+  ],
+  all: [
+    { id: "a-ref",    t: "参考サイトと並べて見て、同じ雰囲気になっている", ng: "NG：色・余白・文字の雰囲気が参考と別物" },
+    { id: "a-late",   t: "後半のページまで1枚目の雰囲気が続き、簡素なページがない", ng: "NG：後半が文字だけで寂しい" },
+    { id: "a-strong", t: "各ページに「強い一文」が1つある", ng: "NG：どのページも同じ調子で、目に留まる一文がない" },
+    { id: "a-motion", t: "動きが遅くない（ページを開いてから待たされない）", ng: "NG：文字が出そろうまで2秒以上かかる" },
+    { id: "a-phone",  t: "iPhone の実機で触った（スワイプ・ボタン・フォーム）", ng: "幅チェッカーは見た目の確認用。触り心地は実機で" },
+  ],
+};
 const PRESETS = [
   { id: "se",    label: "iPhone SE",      w: 375,  h: 667 },
   { id: "ip",    label: "iPhone",         w: 390,  h: 844 },
@@ -292,6 +370,7 @@ $("urlForm").addEventListener("submit", (e) => {
   state.url = normalize($("url").value);
   if (state.url) remember(state.url);
   sync();
+  if (document.body.classList.contains("checking")) renderCheck();
 });
 $("w").addEventListener("change", () => { const v = parseInt($("w").value, 10); if (v >= 200) { state.w = v; state.compare = false; sync(); } });
 $("h").addEventListener("change", () => { const v = parseInt($("h").value, 10); if (v >= 200) { state.h = v; state.compare = false; sync(); } });
@@ -306,6 +385,54 @@ $("share").addEventListener("click", async () => {
   setTimeout(() => { btn.textContent = "この表示の URL をコピー"; }, 2000);
 });
 $("hideBar").addEventListener("click", () => setBare(true));
+// ---- 目で見るチェックリスト ----
+let checkTab = "page";
+const checkKey = () => "check:" + (state.url || "");
+function renderCheck() {
+  const done = load(checkKey(), {});
+  const list = $("checkList"); list.textContent = "";
+  for (const c of CHECKS[checkTab]) {
+    const li = document.createElement("li");
+    const lab = document.createElement("label");
+    const box = document.createElement("input"); box.type = "checkbox"; box.checked = !!done[c.id];
+    box.addEventListener("change", () => { const d = load(checkKey(), {}); d[c.id] = box.checked; store(checkKey(), d); countCheck(); });
+    const txt = document.createElement("span"); txt.textContent = c.t;
+    const ng = document.createElement("span"); ng.className = "ng"; ng.textContent = c.ng;
+    lab.append(box, txt, ng); li.append(lab); list.append(li);
+  }
+  $("tabPage").setAttribute("aria-selected", checkTab === "page");
+  $("tabAll").setAttribute("aria-selected", checkTab === "all");
+  countCheck();
+}
+function countCheck() {
+  const done = load(checkKey(), {});
+  const all = [...CHECKS.page, ...CHECKS.all];
+  $("checkCount").textContent = `${all.filter((c) => done[c.id]).length} / ${all.length}`;
+}
+function setChecking(on) {
+  document.body.classList.toggle("checking", on);
+  $("helpBtn").setAttribute("aria-expanded", on);
+  if (on) renderCheck();
+  if (current.length) layout(current);
+}
+$("helpBtn").addEventListener("click", () => setChecking(!document.body.classList.contains("checking")));
+$("checkClose").addEventListener("click", () => setChecking(false));
+addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.classList.contains("checking")) setChecking(false); });
+$("tabPage").addEventListener("click", () => { checkTab = "page"; renderCheck(); });
+$("tabAll").addEventListener("click", () => { checkTab = "all"; renderCheck(); });
+$("checkReset").addEventListener("click", () => { store(checkKey(), {}); renderCheck(); });
+$("checkCopy").addEventListener("click", async () => {
+  const done = load(checkKey(), {});
+  const part = (arr) => `${arr.filter((c) => done[c.id]).length}/${arr.length}`;
+  const left = [...CHECKS.page, ...CHECKS.all].filter((c) => !done[c.id]).map((c) => "・" + c.t);
+  const d = new Date();
+  const text = [`目で見るチェック（${d.getMonth() + 1}/${d.getDate()}）`, state.url, `ページごと ${part(CHECKS.page)}・全体 ${part(CHECKS.all)}`,
+    left.length ? "まだ見ていない：\n" + left.join("\n") : "すべて確認済み"].filter(Boolean).join("\n");
+  const btn = $("checkCopy");
+  try { await navigator.clipboard.writeText(text); btn.textContent = "コピーしました"; }
+  catch (e) { btn.textContent = "コピーできませんでした"; }
+  setTimeout(() => { btn.textContent = "結果をコピー"; }, 2000);
+});
 $("showBar").addEventListener("click", () => setBare(false));
 let t; addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 150); });
 
