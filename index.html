@@ -64,6 +64,25 @@ main {
 .device .cap b { color: var(--fg); font-weight: 600; }
 .box { position: relative; overflow: hidden; border: 6px solid var(--frame); border-radius: 18px; background: #fff; }
 .box iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: #fff; }
+/* 枠の右のつまみ。左右にドラッグすると幅が変わる */
+.device { position: relative; }
+.grip {
+  position: absolute; right: -22px; top: 50%; width: 16px; height: 72px; margin-top: -36px;
+  border-radius: 8px; background: var(--panel); border: 1px solid var(--line);
+  cursor: ew-resize; touch-action: none; display: grid; place-items: center;
+}
+.grip::before { content: ""; width: 4px; height: 32px; border-left: 2px solid var(--muted); border-right: 2px solid var(--muted); }
+.grip:hover, .grip.on { border-color: var(--accent); }
+.grip.on::before { border-color: var(--accent); }
+/* 帯を隠すと端末の枠だけになる。右下の丸いボタンで戻す */
+body.bare header { display: none; }
+#showBar {
+  position: fixed; z-index: 10; display: none; place-items: center;
+  right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom));
+  width: 44px; height: 44px; padding: 0; border-radius: 50%; opacity: .85;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
+}
+body.bare #showBar { display: grid; }
 .empty { max-width: 34em; margin: 40px auto; color: var(--muted); text-align: left; }
 .empty h2 { color: var(--fg); font-size: 16px; }
 @media (max-width: 600px) {
@@ -93,9 +112,13 @@ main {
     <span class="sep"></span>
     <button type="button" id="reload">再読み込み</button>
     <button type="button" id="share">この表示の URL をコピー</button>
+    <button type="button" id="hideBar">操作の帯を隠す</button>
   </div>
 </header>
 <main id="stage"></main>
+<button type="button" id="showBar" aria-label="操作の帯を出す" title="操作の帯を出す">
+  <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+</button>
 
 <script>
 const PRESETS = [
@@ -150,7 +173,9 @@ function device(w, h, label) {
   const wrap = document.createElement("div"); wrap.className = "device";
   const cap = document.createElement("div"); cap.className = "cap";
   const b = document.createElement("b"); b.textContent = label ? label + " " : "";
-  cap.append(b, `${w} × ${h}`);
+  const size = document.createElement("span"); size.textContent = `${w} × ${h}`;
+  const pct = document.createElement("span");
+  cap.append(b, size, pct);
   const box = document.createElement("div"); box.className = "box";
   const f = document.createElement("iframe");
   f.src = state.url; f.width = w; f.height = h; f.title = `${w}px で表示`;
@@ -158,10 +183,38 @@ function device(w, h, label) {
   box.append(f);
   wrap.append(cap, box);
   stage.append(wrap);
-  return { box, f, w, h, cap };
+  const it = { box, f, w, h, b, size, pct, s: 1 };
+  if (!state.compare) addGrip(wrap, it);
+  return it;
 }
 
-function layout(items) {
+// つまみのドラッグ中は縮小率を固定し、枠の右端が指に付いてくるようにする（枠は中央寄せなので幅は2倍動かす）
+function addGrip(wrap, it) {
+  const g = document.createElement("div");
+  g.className = "grip"; g.title = "ドラッグで幅を変える";
+  wrap.append(g);
+  let x0 = 0, w0 = 0;
+  g.addEventListener("pointerdown", (e) => {
+    e.preventDefault(); g.setPointerCapture(e.pointerId); g.classList.add("on");
+    x0 = e.clientX; w0 = it.w;
+  });
+  g.addEventListener("pointermove", (e) => {
+    if (!g.hasPointerCapture(e.pointerId)) return;
+    it.w = Math.max(200, Math.min(3000, Math.round(w0 + (e.clientX - x0) * 2 / it.s)));
+    it.b.textContent = "自由な幅 ";
+    it.size.textContent = `${it.w} × ${it.h}`;
+    layout([it], it.s);
+  });
+  const end = (e) => {
+    if (!g.hasPointerCapture(e.pointerId)) return;
+    g.releasePointerCapture(e.pointerId); g.classList.remove("on");
+    state.w = it.w; syncControls(); layout(current);
+  };
+  g.addEventListener("pointerup", end);
+  g.addEventListener("pointercancel", end);
+}
+
+function layout(items, fixed) {
   const stage = $("stage");
   const cs = getComputedStyle(stage);
   const availW = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
@@ -170,17 +223,21 @@ function layout(items) {
   const gap = 24;
   let per = availW;
   if (items.length > 1 && availW > 700) per = (availW - gap * (items.length - 1)) / items.length;
+  if (!state.compare) per -= 30; // 右のつまみの分
   for (const it of items) {
     let s = 1;
-    if (state.fit) {
+    if (fixed) s = fixed;
+    else if (state.fit) {
       s = Math.min(1, (per - border) / it.w);
       if (items.length === 1 && availH > 200) s = Math.min(s, (availH - border) / it.h);
+      s = Math.max(s, 0.1); // 画面がまだ描かれていないときに負にならないように
     }
+    it.s = s;
     it.f.style.width = it.w + "px"; it.f.style.height = it.h + "px";
     it.f.style.transform = s === 1 ? "none" : `scale(${s})`;
     it.box.style.width = Math.round(it.w * s) + border + "px";
     it.box.style.height = Math.round(it.h * s) + border + "px";
-    if (s < 1) it.cap.append(`（${Math.round(s * 100)}% に縮小）`);
+    it.pct.textContent = s < 1 ? `（${Math.round(s * 100)}% に縮小）` : "";
   }
 }
 
@@ -200,7 +257,16 @@ function render() {
     const p = PRESETS.find((x) => x.w === state.w && x.h === state.h);
     items.push(device(state.w, state.h, p ? p.label : "自由な幅"));
   }
+  current = items;
   layout(items);
+}
+
+// 帯の出し入れでは枠を作り直さない（表示中のページの位置を保つ）
+let current = [];
+function setBare(on) {
+  document.body.classList.toggle("bare", on);
+  store("bare", on);
+  if (current.length) layout(current);
 }
 
 function writeQuery() {
@@ -211,12 +277,15 @@ function writeQuery() {
   history.replaceState(null, "", "?" + q.toString());
 }
 
-function sync() {
+// 操作の帯と URL だけを今の状態に合わせる（枠は作り直さない）
+function syncControls() {
   $("url").value = state.url; $("w").value = state.w; $("h").value = state.h;
   $("fit").checked = state.fit; $("compare").checked = state.compare;
-  renderPresets(); writeQuery(); render();
+  renderPresets(); writeQuery();
   store("last", { w: state.w, h: state.h, fit: state.fit, compare: state.compare });
 }
+
+function sync() { syncControls(); render(); }
 
 $("urlForm").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -236,6 +305,8 @@ $("share").addEventListener("click", async () => {
   catch (e) { btn.textContent = "コピーできませんでした（アドレス欄から）"; }
   setTimeout(() => { btn.textContent = "この表示の URL をコピー"; }, 2000);
 });
+$("hideBar").addEventListener("click", () => setBare(true));
+$("showBar").addEventListener("click", () => setBare(false));
 let t; addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 150); });
 
 (function init() {
@@ -245,6 +316,7 @@ let t; addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render
   if (q.get("w")) state.w = parseInt(q.get("w"), 10) || state.w;
   if (q.get("h")) state.h = parseInt(q.get("h"), 10) || state.h;
   if (q.has("compare")) state.compare = q.get("compare") === "1";
+  document.body.classList.toggle("bare", load("bare", false));
   renderRecent(); sync();
 })();
 </script>
