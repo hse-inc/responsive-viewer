@@ -147,6 +147,7 @@ body.checking #helpBtn { right: calc(360px + 12px); }
     <button type="button" id="rotate">縦横を入れ替え</button>
     <span class="sep"></span>
     <label class="size"><input type="checkbox" id="fit" checked> 画面に合わせて縮小</label>
+    <label class="size"><input type="checkbox" id="compare2"> iPhone と PC の2つ並べ</label>
     <label class="size"><input type="checkbox" id="compare"> 3つ並べる</label>
     <span class="sep"></span>
     <button type="button" id="reload">再読み込み</button>
@@ -208,9 +209,10 @@ const PRESETS = [
   { id: "note",  label: "ノートPC",        w: 1280, h: 800 },
   { id: "pc",    label: "PC",             w: 1440, h: 900 },
 ];
-const COMPARE = ["ip", "ipad", "pc"];
+// compare：0＝1つ／3＝iPhone・iPad・PC／2＝iPhone と PC（見た目の確認の基準。吉田さん 11/06「見た目はチェッカーのスマホと PC をベースに」）
+const COMPARE = { 3: ["ip", "ipad", "pc"], 2: ["ip", "pc"] };
 const $ = (id) => document.getElementById(id);
-const state = { url: "", w: 390, h: 844, fit: true, compare: false };
+const state = { url: "", w: 390, h: 844, fit: true, compare: 0 };
 
 function store(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
 function load(key, def) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
@@ -231,7 +233,7 @@ function renderPresets() {
     b.setAttribute("aria-pressed", String(!state.compare && p.w === state.w && p.h === state.h));
     b.append(p.label);
     const s = document.createElement("small"); s.textContent = p.w; b.append(s);
-    b.addEventListener("click", () => { state.w = p.w; state.h = p.h; state.compare = false; sync(); });
+    b.addEventListener("click", () => { state.w = p.w; state.h = p.h; state.compare = 0; sync(); });
     box.append(b);
   }
 }
@@ -302,9 +304,18 @@ function layout(items, fixed) {
   let per = availW;
   if (items.length > 1 && availW > 700) per = (availW - gap * (items.length - 1)) / items.length;
   if (!state.compare) per -= 30; // 右のつまみの分
+  // 2つ並べ：iPhone と PC を同じ縮小率にする（大きさの比が実物どおり。どちらも画面の高さに収める）
+  let same = 0;
+  if (state.compare === 2 && !fixed && state.fit && items.length === 2) {
+    const sumW = items.reduce((a, it) => a + it.w, 0), maxH = Math.max(...items.map((it) => it.h));
+    const side = Math.min(1, (availW - gap - border * 2) / sumW, availH > 200 ? (availH - border) / maxH : 1);
+    const stack = Math.min(1, (availW - border) / Math.max(...items.map((it) => it.w)));   // 狭い画面（携帯・タブレット）では上下に並ぶ
+    same = Math.max(0.1, side >= 0.3 || side >= stack ? side : stack);
+  }
   for (const it of items) {
     let s = 1;
     if (fixed) s = fixed;
+    else if (same) s = same;
     else if (state.fit) {
       s = Math.min(1, (per - border) / it.w);
       if (items.length === 1 && availH > 200) s = Math.min(s, (availH - border) / it.h);
@@ -330,7 +341,7 @@ function render() {
   }
   const items = [];
   if (state.compare) {
-    for (const id of COMPARE) { const p = PRESETS.find((x) => x.id === id); items.push(device(p.w, p.h, p.label)); }
+    for (const id of COMPARE[state.compare]) { const p = PRESETS.find((x) => x.id === id); items.push(device(p.w, p.h, p.label)); }
   } else {
     const p = PRESETS.find((x) => x.w === state.w && x.h === state.h);
     items.push(device(state.w, state.h, p ? p.label : "自由な幅"));
@@ -351,14 +362,14 @@ function writeQuery() {
   const q = new URLSearchParams();
   if (state.url) q.set("url", state.url);
   q.set("w", state.w); q.set("h", state.h);
-  if (state.compare) q.set("compare", "1");
+  if (state.compare) q.set("compare", String(state.compare));
   history.replaceState(null, "", "?" + q.toString());
 }
 
 // 操作の帯と URL だけを今の状態に合わせる（枠は作り直さない）
 function syncControls() {
   $("url").value = state.url; $("w").value = state.w; $("h").value = state.h;
-  $("fit").checked = state.fit; $("compare").checked = state.compare;
+  $("fit").checked = state.fit; $("compare").checked = state.compare === 3; $("compare2").checked = state.compare === 2;
   renderPresets(); writeQuery();
   store("last", { w: state.w, h: state.h, fit: state.fit, compare: state.compare });
 }
@@ -372,11 +383,12 @@ $("urlForm").addEventListener("submit", (e) => {
   sync();
   if (document.body.classList.contains("checking")) renderCheck();
 });
-$("w").addEventListener("change", () => { const v = parseInt($("w").value, 10); if (v >= 200) { state.w = v; state.compare = false; sync(); } });
-$("h").addEventListener("change", () => { const v = parseInt($("h").value, 10); if (v >= 200) { state.h = v; state.compare = false; sync(); } });
-$("rotate").addEventListener("click", () => { [state.w, state.h] = [state.h, state.w]; state.compare = false; sync(); });
+$("w").addEventListener("change", () => { const v = parseInt($("w").value, 10); if (v >= 200) { state.w = v; state.compare = 0; sync(); } });
+$("h").addEventListener("change", () => { const v = parseInt($("h").value, 10); if (v >= 200) { state.h = v; state.compare = 0; sync(); } });
+$("rotate").addEventListener("click", () => { [state.w, state.h] = [state.h, state.w]; state.compare = 0; sync(); });
 $("fit").addEventListener("change", () => { state.fit = $("fit").checked; sync(); });
-$("compare").addEventListener("change", () => { state.compare = $("compare").checked; sync(); });
+$("compare").addEventListener("change", () => { state.compare = $("compare").checked ? 3 : 0; sync(); });
+$("compare2").addEventListener("change", () => { state.compare = $("compare2").checked ? 2 : 0; sync(); });
 $("reload").addEventListener("click", render);
 $("share").addEventListener("click", async () => {
   const btn = $("share");
@@ -442,7 +454,8 @@ let t; addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render
   if (q.get("url")) state.url = normalize(q.get("url"));
   if (q.get("w")) state.w = parseInt(q.get("w"), 10) || state.w;
   if (q.get("h")) state.h = parseInt(q.get("h"), 10) || state.h;
-  if (q.has("compare")) state.compare = q.get("compare") === "1";
+  if (q.has("compare")) { const c = q.get("compare"); state.compare = c === "2" ? 2 : c === "1" || c === "3" ? 3 : 0; }
+  if (state.compare === true) state.compare = 3; if (!state.compare) state.compare = 0;   // 前の版の保存（true／false）
   document.body.classList.toggle("bare", load("bare", false));
   renderRecent(); sync();
 })();
