@@ -133,6 +133,8 @@ body.checking #helpBtn { right: calc(360px + 12px); }
 body.refmode #refWrap { display: flex; }
 body.refmode .only-normal { display: none; }
 body:not(.refmode) .urlwrap > span { display: none; }
+body.refmode form.url { flex-wrap: wrap; }
+@media (max-width: 700px) { body.refmode .urlwrap { flex-basis: 100%; } }
 .device .cap a { margin-left: 6px; color: var(--accent); font-size: 12px; }
 .device.is-ref .cap b { color: var(--accent); }
 .empty { max-width: 34em; margin: 40px auto; color: var(--muted); text-align: left; }
@@ -335,6 +337,7 @@ function layout(items, fixed) {
     const side = Math.min(1, (availW - gap - border * 2) / sumW, availH > 200 ? (availH - border) / maxH : 1);
     const stack = Math.min(1, (availW - border) / Math.max(...items.map((it) => it.w)));   // 狭い画面（携帯・タブレット）では上下に並ぶ
     same = Math.max(0.1, side >= 0.3 || side >= stack ? side : stack);
+    if (state.mode === "ref" && availW < 700) same = Math.max(0.1, stack);   // 比較モードはスマホでは上下に並べる（参考が上・初稿が下）
   }
   for (const it of items) {
     let s = 1;
