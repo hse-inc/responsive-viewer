@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>クオリティチェッカー（試し）</title>
+<style>
+/* 上に操作の帯、下に端末の枠。枠は画面に収まるよう縮小できる */
+:root {
+  --bg: #eef0f2;
+  --panel: #ffffff;
+  --line: #d5d9de;
+  --fg: #1d2329;
+  --muted: #66707a;
+  --accent: #0f6b5c;
+  --accent-fg: #ffffff;
+  --frame: #20262c;
+  --font: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15191d; --panel: #1f252b; --line: #343c44; --fg: #e8ecef;
+    --muted: #9aa4ad; --accent: #4fc2a9; --accent-fg: #0d1a17; --frame: #000000;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font);
+  display: flex; flex-direction: column;
+}
+header {
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 10px max(14px, env(safe-area-inset-left));
+  display: grid; gap: 8px;
+}
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+h1 { font-size: 15px; margin: 0 8px 0 0; letter-spacing: .02em; white-space: nowrap; }
+form.url { display: flex; gap: 6px; flex: 1 1 320px; min-width: 0; }
+input, select, button {
+  font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 8px; padding: 7px 10px; min-height: 36px;
+}
+input[type="url"] { flex: 1; min-width: 0; font-family: var(--mono); font-size: 13px; }
+input[type="number"] { width: 78px; font-variant-numeric: tabular-nums; }
+button { cursor: pointer; background: var(--panel); white-space: nowrap; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.chip small { opacity: .75; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+label.size { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.note { color: var(--muted); font-size: 12px; }
+main {
+  flex: 1; overflow: auto; padding: 16px max(14px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  display: flex; gap: 24px; align-items: flex-start; justify-content: center; flex-wrap: wrap;
+}
+.device { display: grid; gap: 6px; justify-items: center; }
+.device .cap { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.device .cap b { color: var(--fg); font-weight: 600; }
+.box { position: relative; overflow: hidden; border: 6px solid var(--frame); border-radius: 18px; background: #fff; }
+.box iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; background: #fff; }
+/* 枠の右のつまみ。左右にドラッグすると幅が変わる */
+.device { position: relative; }
+.grip {
+  position: absolute; right: -22px; top: 50%; width: 16px; height: 72px; margin-top: -36px;
+  border-radius: 8px; background: var(--panel); border: 1px solid var(--line);
+  cursor: ew-resize; touch-action: none; display: grid; place-items: center;
+}
+.grip::before { content: ""; width: 4px; height: 32px; border-left: 2px solid var(--muted); border-right: 2px solid var(--muted); }
+.grip:hover, .grip.on { border-color: var(--accent); }
+.grip.on::before { border-color: var(--accent); }
+/* 帯を隠すと端末の枠だけになる。右下の丸いボタンで戻す */
+body.bare header { display: none; }
+#showBar {
+  position: fixed; z-index: 10; display: none; place-items: center;
+  right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom));
+  width: 44px; height: 44px; padding: 0; border-radius: 50%; opacity: .85;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
+}
+body.bare #showBar { display: grid; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 56px); }
+/* 右下の「？」：人が目で見るチェックリスト。サイトを隠さないよう、PC は右・狭い画面は下にパネルを出す */
+#helpBtn {
+  position: fixed; z-index: 11; display: grid; place-items: center;
+  right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom));
+  width: 44px; height: 44px; padding: 0; border-radius: 50%;
+  background: var(--accent); color: var(--accent-fg); border-color: var(--accent);
+  font-size: 20px; font-weight: 700; box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
+}
+#check {
+  position: fixed; z-index: 12; display: none; flex-direction: column;
+  background: var(--panel); border-left: 1px solid var(--line);
+  top: 0; right: 0; bottom: 0; width: 360px;
+  padding: max(12px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) 14px;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, .12);
+}
+body.checking #check { display: flex; }
+body.checking { padding-right: 360px; }
+body.checking #helpBtn { right: calc(360px + 12px); }
+#check .top { display: flex; align-items: center; gap: 8px; }
+#check h2 { font-size: 15px; margin: 0; flex: 1; }
+#check .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+#check .tabs { display: flex; gap: 6px; margin: 10px 0 6px; }
+#check .tabs button { flex: 1; }
+#check .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+#check ol { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; }
+#check li { border-bottom: 1px solid var(--line); }
+#check li label { display: grid; grid-template-columns: 22px 1fr; gap: 4px 8px; padding: 9px 2px; cursor: pointer; }
+#check li input { width: 18px; height: 18px; min-height: 0; margin: 2px 0 0; accent-color: var(--accent); }
+#check li .ng { grid-column: 2; color: var(--muted); font-size: 12px; }
+#check li input:checked + span { color: var(--muted); text-decoration: line-through; }
+#check .foot { display: flex; gap: 6px; padding-top: 10px; }
+#check .foot button { flex: 1; }
+#check .lead { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+@media (max-width: 900px) {
+  #check { top: auto; left: 0; width: auto; height: 55vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; box-shadow: 0 -4px 16px rgba(0, 0, 0, .15); }
+  body.checking { padding-right: 0; padding-bottom: 55vh; }
+  body.checking #helpBtn { right: max(12px, env(safe-area-inset-right)); bottom: calc(55vh + 12px); }
+  body.checking.bare #showBar { display: none; }
+}
+/* モードの切り替え（通常／比較） */
+.modes { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.modes button { border: 0; background: transparent; min-height: 30px; padding: 4px 12px; border-radius: 7px; }
+.modes button[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.beta { font-size: 11px; color: var(--accent); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+.urlwrap { display: flex; align-items: center; gap: 6px; flex: 1 1 260px; min-width: 0; }
+.urlwrap > span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+#refWrap { display: none; }
+body.refmode #refWrap { display: flex; }
+body.refmode .only-normal { display: none; }
+body:not(.refmode) .urlwrap > span { display: none; }
+.device .cap a { margin-left: 6px; color: var(--accent); font-size: 12px; }
+.device.is-ref .cap b { color: var(--accent); }
+.empty { max-width: 34em; margin: 40px auto; color: var(--muted); text-align: left; }
+.empty h2 { color: var(--fg); font-size: 16px; }
+@media (max-width: 600px) {
+  h1 { width: 100%; }
+  .sep { display: none; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <h1>クオリティチェッカー <span class="beta">試し</span></h1>
+    <div class="modes" role="tablist" aria-label="モード">
+      <button type="button" role="tab" id="modeNormal" aria-selected="true">通常モード</button>
+      <button type="button" role="tab" id="modeRef" aria-selected="false">比較モード</button>
+    </div>
+  </div>
+  <div class="row">
+    <form class="url" id="urlForm">
+      <label class="urlwrap" id="refWrap"><span>参考サイト</span><input type="url" id="ref" list="recent" placeholder="https://参考サイトの URL"></label>
+      <label class="urlwrap"><span>初稿サイト</span><input type="url" id="url" list="recent" placeholder="https://v1.example-recruit.pages.dev/" required></label>
+      <datalist id="recent"></datalist>
+      <button class="primary" type="submit">表示</button>
+    </form>
+  </div>
+  <div class="row" id="presets" role="group" aria-label="端末の幅"></div>
+  <div class="row">
+    <label class="size">幅 <input type="number" id="w" min="200" max="3000" step="1"></label>
+    <label class="size">高さ <input type="number" id="h" min="200" max="3000" step="1"></label>
+    <button type="button" id="rotate">縦横を入れ替え</button>
+    <span class="sep"></span>
+    <label class="size"><input type="checkbox" id="fit" checked> 画面に合わせて縮小</label>
+    <label class="size only-normal"><input type="checkbox" id="compare2"> iPhone と PC の2つ並べ</label>
+    <label class="size only-normal"><input type="checkbox" id="compare"> 3つ並べる</label>
+    <span class="sep"></span>
+    <button type="button" id="reload">再読み込み</button>
+    <button type="button" id="share">この表示の URL をコピー</button>
+    <button type="button" id="hideBar">操作の帯を隠す</button>
+  </div>
+</header>
+<main id="stage"></main>
+<button type="button" id="showBar" aria-label="操作の帯を出す" title="操作の帯を出す">
+  <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+</button>
+
+<button type="button" id="helpBtn" aria-label="目で見るチェックリストを開く" aria-expanded="false" aria-controls="check" title="目で見るチェックリスト">?</button>
+<aside id="check" aria-label="目で見るチェックリスト">
+  <div class="top">
+    <h2>目で見るチェックリスト</h2>
+    <span class="count" id="checkCount"></span>
+    <button type="button" id="checkClose" aria-label="閉じる">閉じる</button>
+  </div>
+  <p class="lead">検査の道具では見られないところを、人の目で確かめます。チェックは表示中の URL ごとに、このブラウザに残ります。</p>
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tabPage" aria-selected="true">ページごと</button>
+    <button type="button" role="tab" id="tabAll" aria-selected="false">全体</button>
+  </div>
+  <ol id="checkList"></ol>
+  <div class="foot">
+    <button type="button" id="checkReset">リセット</button>
+    <button type="button" class="primary" id="checkCopy">結果をコピー</button>
+  </div>
+</aside>
+
+<script>
+// 人の目で見る項目（どの案件にも共通。案件の名前や先方の情報は入れない）
+const CHECKS = {
+  page: [
+    { id: "p-vbal",  t: "上下の余白がそろっている（ヘッダーの下と、画面の下が同じくらい）", ng: "NG：中身が上に寄り、下だけ大きく空いている" },
+    { id: "p-space", t: "余白が段階で広がっている（行の間 ＜ 段落の間 ＜ 見出しと本文 ＜ まとまりの間）", ng: "NG：見出し・本文・写真が全部同じ間隔で並び、どれが一組か分からない" },
+    { id: "p-font",  t: "文字が小さすぎず、本文が細すぎない。見出しと本文で大きさに差がある", ng: "NG：本文が細くて読みにくい／見出しと本文が同じ大きさ" },
+    { id: "p-break", t: "改行が文節で折れている。助詞だけの行がなく、強調の句が途中で折れていない（iPhone・PC の両方で）", ng: "NG：「大切にしているの／は、」のように文節の途中で折れる／「※」だけが行の終わりに残る" },
+    { id: "p-zip",   t: "〒番号のあとで改行している。電話番号が途中で折れていない", ng: "NG：〒と住所が同じ行に続く／電話番号が2行に分かれる" },
+    { id: "p-over",  t: "文字が写真やイラストに重なって読みにくくなっていない。絵が見切れていない", ng: "NG：明るい写真の上に白い文字／イラストの頭や手が枠で切れる" },
+    { id: "p-photo", t: "写真の大きさが合っている。人物の手や指が崩れていない", ng: "NG：写真が小さく寂しい／指の数や向きがおかしい" },
+    { id: "p-align", t: "同じ役割の見出し・ラベルが、前後のページと同じ大きさ・位置になっている", ng: "NG：ページごとに見出しの大きさや位置がばらばら" },
+  ],
+  all: [
+    { id: "a-ref",    t: "参考サイトと並べて見て、同じ雰囲気になっている", ng: "NG：色・余白・文字の雰囲気が参考と別物" },
+    { id: "a-late",   t: "後半のページまで1枚目の雰囲気が続き、簡素なページがない", ng: "NG：後半が文字だけで寂しい" },
+    { id: "a-strong", t: "各ページに「強い一文」が1つある", ng: "NG：どのページも同じ調子で、目に留まる一文がない" },
+    { id: "a-motion", t: "動きが遅くない（ページを開いてから待たされない）", ng: "NG：文字が出そろうまで2秒以上かかる" },
+    { id: "a-phone",  t: "iPhone の実機で触った（スワイプ・ボタン・フォーム）", ng: "クオリティチェッカーは見た目の確認用。触り心地は実機で" },
+  ],
+};
+const PRESETS = [
+  { id: "se",    label: "iPhone SE",      w: 375,  h: 667 },
+  { id: "ip",    label: "iPhone",         w: 390,  h: 844 },
+  { id: "max",   label: "iPhone Pro Max", w: 440,  h: 956 },
+  { id: "mini",  label: "iPad mini",      w: 744,  h: 1133 },
+  { id: "ipad",  label: "iPad",           w: 820,  h: 1180 },
+  { id: "note",  label: "ノートPC",        w: 1280, h: 800 },
+  { id: "pc",    label: "PC",             w: 1440, h: 900 },
+];
+// compare：0＝1つ／3＝iPhone・iPad・PC／2＝iPhone と PC（見た目の確認の基準。吉田さん 11/06「見た目はチェッカーのスマホと PC をベースに」）
+const COMPARE = { 3: ["ip", "ipad", "pc"], 2: ["ip", "pc"] };
+const $ = (id) => document.getElementById(id);
+const state = { url: "", ref: "", mode: "normal", w: 390, h: 844, fit: true, compare: 0 };
+
+function store(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
+function load(key, def) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
+
+function normalize(u) {
+  u = (u || "").trim();
+  if (!u) return "";
+  if (!/^https?:\/\//i.test(u)) u = "https://" + u;
+  return u;
+}
+
+function renderPresets() {
+  const box = $("presets");
+  box.textContent = "";
+  for (const p of PRESETS) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip";
+    b.setAttribute("aria-pressed", String((!state.compare || state.mode === "ref") && p.w === state.w && p.h === state.h));
+    b.append(p.label);
+    const s = document.createElement("small"); s.textContent = p.w; b.append(s);
+    b.addEventListener("click", () => { state.w = p.w; state.h = p.h; state.compare = 0; sync(); });
+    box.append(b);
+  }
+}
+
+function renderRecent() {
+  const list = $("recent"); list.textContent = "";
+  for (const u of load("recent", [])) { const o = document.createElement("option"); o.value = u; list.append(o); }
+}
+
+function remember(u) {
+  const r = load("recent", []).filter((x) => x !== u);
+  r.unshift(u); store("recent", r.slice(0, 12)); renderRecent();
+}
+
+function device(w, h, label, src, isRef) {
+  const stage = $("stage");
+  const wrap = document.createElement("div"); wrap.className = "device" + (isRef ? " is-ref" : "");
+  const cap = document.createElement("div"); cap.className = "cap";
+  const b = document.createElement("b"); b.textContent = label ? label + " " : "";
+  const size = document.createElement("span"); size.textContent = `${w} × ${h}`;
+  const pct = document.createElement("span");
+  cap.append(b, size, pct);
+  const url = src === undefined ? state.url : src;
+  if (state.mode === "ref" && url) {   // 参考サイトが埋め込みを禁止していると枠が白い。そのときは別のタブで見る
+    const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "別のタブで開く"; cap.append(a);
+  }
+  const box = document.createElement("div"); box.className = "box";
+  const f = document.createElement("iframe");
+  f.src = url; f.width = w; f.height = h; f.title = `${w}px で表示`;
+  f.setAttribute("loading", "lazy");
+  box.append(f);
+  wrap.append(cap, box);
+  stage.append(wrap);
+  const it = { box, f, w, h, b, size, pct, s: 1 };
+  if (!state.compare && state.mode !== "ref") addGrip(wrap, it);
+  return it;
+}
+
+// つまみのドラッグ中は縮小率を固定し、枠の右端が指に付いてくるようにする（枠は中央寄せなので幅は2倍動かす）
+function addGrip(wrap, it) {
+  const g = document.createElement("div");
+  g.className = "grip"; g.title = "ドラッグで幅を変える";
+  wrap.append(g);
+  let x0 = 0, w0 = 0;
+  g.addEventListener("pointerdown", (e) => {
+    e.preventDefault(); g.setPointerCapture(e.pointerId); g.classList.add("on");
+    x0 = e.clientX; w0 = it.w;
+  });
+  g.addEventListener("pointermove", (e) => {
+    if (!g.hasPointerCapture(e.pointerId)) return;
+    it.w = Math.max(200, Math.min(3000, Math.round(w0 + (e.clientX - x0) * 2 / it.s)));
+    it.b.textContent = "自由な幅 ";
+    it.size.textContent = `${it.w} × ${it.h}`;
+    layout([it], it.s);
+  });
+  const end = (e) => {
+    if (!g.hasPointerCapture(e.pointerId)) return;
+    g.releasePointerCapture(e.pointerId); g.classList.remove("on");
+    state.w = it.w; syncControls(); layout(current);
+  };
+  g.addEventListener("pointerup", end);
+  g.addEventListener("pointercancel", end);
+}
+
+function layout(items, fixed) {
+  const stage = $("stage");
+  const cs = getComputedStyle(stage);
+  const availW = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const availH = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 30;
+  const border = 12;
+  const gap = 24;
+  let per = availW;
+  if (items.length > 1 && availW > 700) per = (availW - gap * (items.length - 1)) / items.length;
+  if (!state.compare && state.mode !== "ref") per -= 30; // 右のつまみの分
+  // 2つ並べ：iPhone と PC を同じ縮小率にする（大きさの比が実物どおり。どちらも画面の高さに収める）
+  let same = 0;
+  if ((state.compare === 2 || state.mode === "ref") && !fixed && state.fit && items.length === 2) {
+    const sumW = items.reduce((a, it) => a + it.w, 0), maxH = Math.max(...items.map((it) => it.h));
+    const side = Math.min(1, (availW - gap - border * 2) / sumW, availH > 200 ? (availH - border) / maxH : 1);
+    const stack = Math.min(1, (availW - border) / Math.max(...items.map((it) => it.w)));   // 狭い画面（携帯・タブレット）では上下に並ぶ
+    same = Math.max(0.1, side >= 0.3 || side >= stack ? side : stack);
+  }
+  for (const it of items) {
+    let s = 1;
+    if (fixed) s = fixed;
+    else if (same) s = same;
+    else if (state.fit) {
+      s = Math.min(1, (per - border) / it.w);
+      if (items.length === 1 && availH > 200) s = Math.min(s, (availH - border) / it.h);
+      s = Math.max(s, 0.1); // 画面がまだ描かれていないときに負にならないように
+    }
+    it.s = s;
+    it.f.style.width = it.w + "px"; it.f.style.height = it.h + "px";
+    it.f.style.transform = s === 1 ? "none" : `scale(${s})`;
+    it.box.style.width = Math.round(it.w * s) + border + "px";
+    it.box.style.height = Math.round(it.h * s) + border + "px";
+    it.pct.textContent = s < 1 ? `（${Math.round(s * 100)}% に縮小）` : "";
+  }
+}
+
+function render() {
+  const stage = $("stage"); stage.textContent = "";
+  if (state.mode === "ref") {
+    if (!state.url && !state.ref) {
+      const d = document.createElement("div"); d.className = "empty";
+      d.innerHTML = "<h2>比較モード：参考サイトと初稿サイトの URL を入れて「表示」を押してください</h2>" +
+        "<p>2つのサイトを、同じ端末の幅・同じ縮小率で左右に並べます。上の端末のボタンで、iPhone・PC などに切り替えられます。</p>" +
+        "<p class=\"note\">参考サイトによっては埋め込みを禁止していて、枠の中が白いままになります。そのときは枠の上の「別のタブで開く」で見てください。</p>";
+      stage.append(d); current = []; return;
+    }
+    const p = PRESETS.find((x) => x.w === state.w && x.h === state.h);
+    const name = p ? p.label : "自由な幅";
+    const items = [device(state.w, state.h, "参考サイト（" + name + "）", state.ref, true), device(state.w, state.h, "初稿サイト（" + name + "）", state.url)];
+    current = items; layout(items); return;
+  }
+  if (!state.url) {
+    const d = document.createElement("div"); d.className = "empty";
+    d.innerHTML = "<h2>URL を入れて「表示」を押してください</h2>" +
+      "<p>入れたサイトを、選んだ端末の幅で表示します。開いた折りたたみスマホや iPad からでも、iPhone と同じ幅で確認できます。</p>" +
+      "<p class=\"note\">サイトの側で埋め込みを禁止していると、枠の中が白いままになります（Google や SNS など）。自分たちが公開した LP は表示できます。</p>";
+    stage.append(d); return;
+  }
+  const items = [];
+  if (state.compare) {
+    for (const id of COMPARE[state.compare]) { const p = PRESETS.find((x) => x.id === id); items.push(device(p.w, p.h, p.label)); }
+  } else {
+    const p = PRESETS.find((x) => x.w === state.w && x.h === state.h);
+    items.push(device(state.w, state.h, p ? p.label : "自由な幅"));
+  }
+  current = items;
+  layout(items);
+}
+
+// 帯の出し入れでは枠を作り直さない（表示中のページの位置を保つ）
+let current = [];
+function setBare(on) {
+  document.body.classList.toggle("bare", on);
+  store("bare", on);
+  if (current.length) layout(current);
+}
+
+function writeQuery() {
+  const q = new URLSearchParams();
+  if (state.url) q.set("url", state.url);
+  q.set("w", state.w); q.set("h", state.h);
+  if (state.compare && state.mode !== "ref") q.set("compare", String(state.compare));
+  if (state.mode === "ref") { q.set("mode", "ref"); if (state.ref) q.set("ref", state.ref); }
+  history.replaceState(null, "", "?" + q.toString());
+}
+
+// 操作の帯と URL だけを今の状態に合わせる（枠は作り直さない）
+function syncControls() {
+  $("url").value = state.url; $("ref").value = state.ref; $("w").value = state.w;
+  document.body.classList.toggle("refmode", state.mode === "ref");
+  $("modeNormal").setAttribute("aria-selected", String(state.mode !== "ref"));
+  $("modeRef").setAttribute("aria-selected", String(state.mode === "ref"));
+  $("url").required = state.mode !== "ref"; $("h").value = state.h;
+  $("fit").checked = state.fit; $("compare").checked = state.compare === 3; $("compare2").checked = state.compare === 2;
+  renderPresets(); writeQuery();
+  store("last", { w: state.w, h: state.h, fit: state.fit, compare: state.compare, mode: state.mode, ref: state.ref });
+}
+
+function sync() { syncControls(); render(); }
+
+$("urlForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  state.url = normalize($("url").value);
+  if (state.url) remember(state.url);
+  if (state.mode === "ref") { state.ref = normalize($("ref").value); if (state.ref) remember(state.ref); }
+  sync();
+  if (document.body.classList.contains("checking")) renderCheck();
+});
+$("w").addEventListener("change", () => { const v = parseInt($("w").value, 10); if (v >= 200) { state.w = v; state.compare = 0; sync(); } });
+$("h").addEventListener("change", () => { const v = parseInt($("h").value, 10); if (v >= 200) { state.h = v; state.compare = 0; sync(); } });
+$("rotate").addEventListener("click", () => { [state.w, state.h] = [state.h, state.w]; state.compare = 0; sync(); });
+$("fit").addEventListener("change", () => { state.fit = $("fit").checked; sync(); });
+$("compare").addEventListener("change", () => { state.compare = $("compare").checked ? 3 : 0; sync(); });
+$("compare2").addEventListener("change", () => { state.compare = $("compare2").checked ? 2 : 0; sync(); });
+$("reload").addEventListener("click", render);
+$("modeNormal").addEventListener("click", () => { state.mode = "normal"; sync(); });
+$("modeRef").addEventListener("click", () => { state.mode = "ref"; state.compare = 0; sync(); });
+$("share").addEventListener("click", async () => {
+  const btn = $("share");
+  try { await navigator.clipboard.writeText(location.href); btn.textContent = "コピーしました"; }
+  catch (e) { btn.textContent = "コピーできませんでした（アドレス欄から）"; }
+  setTimeout(() => { btn.textContent = "この表示の URL をコピー"; }, 2000);
+});
+$("hideBar").addEventListener("click", () => setBare(true));
+// ---- 目で見るチェックリスト ----
+let checkTab = "page";
+const checkKey = () => "check:" + (state.url || "");
+function renderCheck() {
+  const done = load(checkKey(), {});
+  const list = $("checkList"); list.textContent = "";
+  for (const c of CHECKS[checkTab]) {
+    const li = document.createElement("li");
+    const lab = document.createElement("label");
+    const box = document.createElement("input"); box.type = "checkbox"; box.checked = !!done[c.id];
+    box.addEventListener("change", () => { const d = load(checkKey(), {}); d[c.id] = box.checked; store(checkKey(), d); countCheck(); });
+    const txt = document.createElement("span"); txt.textContent = c.t;
+    const ng = document.createElement("span"); ng.className = "ng"; ng.textContent = c.ng;
+    lab.append(box, txt, ng); li.append(lab); list.append(li);
+  }
+  $("tabPage").setAttribute("aria-selected", checkTab === "page");
+  $("tabAll").setAttribute("aria-selected", checkTab === "all");
+  countCheck();
+}
+function countCheck() {
+  const done = load(checkKey(), {});
+  const all = [...CHECKS.page, ...CHECKS.all];
+  $("checkCount").textContent = `${all.filter((c) => done[c.id]).length} / ${all.length}`;
+}
+function setChecking(on) {
+  document.body.classList.toggle("checking", on);
+  $("helpBtn").setAttribute("aria-expanded", on);
+  if (on) renderCheck();
+  if (current.length) layout(current);
+}
+$("helpBtn").addEventListener("click", () => setChecking(!document.body.classList.contains("checking")));
+$("checkClose").addEventListener("click", () => setChecking(false));
+addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.classList.contains("checking")) setChecking(false); });
+$("tabPage").addEventListener("click", () => { checkTab = "page"; renderCheck(); });
+$("tabAll").addEventListener("click", () => { checkTab = "all"; renderCheck(); });
+$("checkReset").addEventListener("click", () => { store(checkKey(), {}); renderCheck(); });
+$("checkCopy").addEventListener("click", async () => {
+  const done = load(checkKey(), {});
+  const part = (arr) => `${arr.filter((c) => done[c.id]).length}/${arr.length}`;
+  const left = [...CHECKS.page, ...CHECKS.all].filter((c) => !done[c.id]).map((c) => "・" + c.t);
+  const d = new Date();
+  const text = [`目で見るチェック（${d.getMonth() + 1}/${d.getDate()}）`, state.url, `ページごと ${part(CHECKS.page)}・全体 ${part(CHECKS.all)}`,
+    left.length ? "まだ見ていない：\n" + left.join("\n") : "すべて確認済み"].filter(Boolean).join("\n");
+  const btn = $("checkCopy");
+  try { await navigator.clipboard.writeText(text); btn.textContent = "コピーしました"; }
+  catch (e) { btn.textContent = "コピーできませんでした"; }
+  setTimeout(() => { btn.textContent = "結果をコピー"; }, 2000);
+});
+$("showBar").addEventListener("click", () => setBare(false));
+let t; addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 150); });
+
+(function init() {
+  Object.assign(state, load("last", {}));
+  const q = new URLSearchParams(location.search);
+  if (q.get("url")) state.url = normalize(q.get("url"));
+  if (q.get("w")) state.w = parseInt(q.get("w"), 10) || state.w;
+  if (q.get("h")) state.h = parseInt(q.get("h"), 10) || state.h;
+  if (q.has("compare")) { const c = q.get("compare"); state.compare = c === "2" ? 2 : c === "1" || c === "3" ? 3 : 0; }
+  if (q.get("mode") === "ref") state.mode = "ref"; else if (q.has("url")) state.mode = "normal";
+  if (q.get("ref")) state.ref = normalize(q.get("ref"));
+  if (state.mode !== "ref") state.mode = "normal";
+  if (state.compare === true) state.compare = 3; if (!state.compare) state.compare = 0;   // 前の版の保存（true／false）
+  document.body.classList.toggle("bare", load("bare", false));
+  renderRecent(); sync();
+  addEventListener("load", () => { if (current.length) layout(current); });   // 帯の高さが決まってから縮小率を測り直す
+})();
+</script>
+</body>
+</html>
