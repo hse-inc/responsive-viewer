@@ -150,7 +150,7 @@ body.checking #helpBtn { right: calc(360px + 12px); }
     <label class="size"><input type="checkbox" id="compare2"> iPhone と PC の2つ並べ</label>
     <label class="size"><input type="checkbox" id="compare"> 3つ並べる</label>
     <span class="sep"></span>
-    <button type="button" id="reload">再読み込み</button>
+    <button type="button" id="reload" title="枠の中のサイトだけを、キャッシュを使わず最新の状態で読み込み直します">再読み込み（最新）</button>
     <button type="button" id="share">この表示の URL をコピー</button>
     <button type="button" id="hideBar">操作の帯を隠す</button>
   </div>
@@ -258,8 +258,9 @@ function device(w, h, label) {
   cap.append(b, size, pct);
   const box = document.createElement("div"); box.className = "box";
   const f = document.createElement("iframe");
-  f.src = state.url; f.width = w; f.height = h; f.title = `${w}px で表示`;
+  f.src = busted(state.url); f.width = w; f.height = h; f.title = `${w}px で表示`;
   f.setAttribute("loading", "lazy");
+  hookFresh(f);
   box.append(f);
   wrap.append(cap, box);
   stage.append(wrap);
@@ -330,6 +331,51 @@ function layout(items, fixed) {
   }
 }
 
+// ---- キャッシュを使わず最新を表示する ----
+// 枠の中のサイトの URL に毎回ちがう印（_cb）を付け、HTML・CSS・JS・画像をキャッシュを通さず取り直してから表示する。
+// 同じドメイン（hse-inc.github.io）のサイトは、枠の中でページを移っても CSS を取り直す。
+let bust = Date.now().toString(36);
+function busted(u) {
+  if (!u) return u;
+  try { const x = new URL(u); x.searchParams.set("_cb", bust); return x.href; } catch (e) { return u; }
+}
+async function refetch(u) {
+  try {
+    const r = await fetch(u, { cache: "reload", mode: "cors", credentials: "omit" });
+    const t = await r.text();
+    const doc = new DOMParser().parseFromString(t, "text/html");
+    const list = [...doc.querySelectorAll('link[rel~="stylesheet"][href], link[rel="preload"][href], script[src], img[src], video[poster]')]
+      .map((el) => el.getAttribute("href") || el.getAttribute("src") || el.getAttribute("poster"))
+      .map((p) => { try { return new URL(p, u).href; } catch (e) { return ""; } })
+      .filter((p) => p && !p.startsWith("data:"));
+    await Promise.all([...new Set(list)].slice(0, 80).map((p) => fetch(p, { cache: "reload", mode: "no-cors", credentials: "omit" }).catch(() => {})));
+  } catch (e) {
+    try { await fetch(u, { cache: "reload", mode: "no-cors", credentials: "omit" }); } catch (e2) {}
+  }
+}
+async function fresh() {
+  const btn = $("reload");
+  const urls = [state.url, state.ref].filter(Boolean);
+  btn.disabled = true; btn.textContent = "最新を読み込み中…";
+  const timer = new Promise((r) => setTimeout(r, 5000));   // 遅いときは5秒で打ち切って表示する
+  await Promise.race([Promise.all(urls.map(refetch)), timer]);
+  bust = Date.now().toString(36);
+  btn.disabled = false; btn.textContent = "再読み込み（最新）";
+  render();
+}
+function hookFresh(f) {
+  f.addEventListener("load", () => {
+    try {
+      const d = f.contentDocument; if (!d) return;
+      d.querySelectorAll('link[rel~="stylesheet"][href]').forEach((l) => {
+        const x = new URL(l.href);
+        if (x.origin !== location.origin || x.searchParams.get("_cb") === bust) return;
+        x.searchParams.set("_cb", bust); l.href = x.href;
+      });
+    } catch (e) {}   // 別のドメインのサイトは中を触れない（そのときは表示前の取り直しだけ）
+  });
+}
+
 function render() {
   const stage = $("stage"); stage.textContent = "";
   if (!state.url) {
@@ -380,7 +426,7 @@ $("urlForm").addEventListener("submit", (e) => {
   e.preventDefault();
   state.url = normalize($("url").value);
   if (state.url) remember(state.url);
-  sync();
+  syncControls(); fresh();
   if (document.body.classList.contains("checking")) renderCheck();
 });
 $("w").addEventListener("change", () => { const v = parseInt($("w").value, 10); if (v >= 200) { state.w = v; state.compare = 0; sync(); } });
@@ -389,7 +435,7 @@ $("rotate").addEventListener("click", () => { [state.w, state.h] = [state.h, sta
 $("fit").addEventListener("change", () => { state.fit = $("fit").checked; sync(); });
 $("compare").addEventListener("change", () => { state.compare = $("compare").checked ? 3 : 0; sync(); });
 $("compare2").addEventListener("change", () => { state.compare = $("compare2").checked ? 2 : 0; sync(); });
-$("reload").addEventListener("click", render);
+$("reload").addEventListener("click", fresh);
 $("share").addEventListener("click", async () => {
   const btn = $("share");
   try { await navigator.clipboard.writeText(location.href); btn.textContent = "コピーしました"; }
@@ -457,7 +503,7 @@ let t; addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render
   if (q.has("compare")) { const c = q.get("compare"); state.compare = c === "2" ? 2 : c === "1" || c === "3" ? 3 : 0; }
   if (state.compare === true) state.compare = 3; if (!state.compare) state.compare = 0;   // 前の版の保存（true／false）
   document.body.classList.toggle("bare", load("bare", false));
-  renderRecent(); sync();
+  renderRecent(); syncControls(); fresh();
 })();
 </script>
 </body>
