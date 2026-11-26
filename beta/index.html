@@ -386,6 +386,7 @@ async function fresh() {
   const btn = $("reload");
   const urls = [state.url, state.ref].filter(Boolean);
   btn.disabled = true; btn.textContent = "最新を読み込み中…";
+  if (urls.length && !current.length) { const d = document.createElement("div"); d.className = "empty"; d.innerHTML = "<h2>最新の状態を読み込んでいます…</h2>"; $("stage").textContent = ""; $("stage").append(d); }
   const timer = new Promise((r) => setTimeout(r, 5000));   // 遅いときは5秒で打ち切って表示する
   await Promise.race([Promise.all(urls.map(refetch)), timer]);
   bust = Date.now().toString(36);
@@ -491,11 +492,11 @@ function render() {
     if (!state.url) {
       const d = document.createElement("div"); d.className = "empty";
       d.innerHTML = "<h2>スマホとPC：URL を入れて「表示」を押してください</h2>" +
-        "<p>同じサイトを iPhone と PC の幅で左右に並べ、片方をスクロールすると、もう片方も同じ場所（見出し・セクション）まで動きます。片方でページを移ると、もう片方も同じページへ移ります。</p>" +
+        "<p>同じサイトを PC（左）と iPhone（右）の幅で並べ、片方をスクロールすると、もう片方も同じ場所（見出し・セクション）まで動きます。片方でページを移ると、もう片方も同じページへ移ります。</p>" +
         "<p class=\"note\">スクロールを合わせられるのは、hse-inc.github.io で公開したサイト（確認用 GitHub）だけです。ほかのドメインのサイトは並べて表示するだけになります。</p>";
       stage.append(d); current = []; return;
     }
-    const items = COMPARE[2].map((id) => { const p = PRESETS.find((x) => x.id === id); return device(p.w, p.h, p.label); });
+    const items = ["pc", "ip"].map((id) => { const p = PRESETS.find((x) => x.id === id); return device(p.w, p.h, p.label); });
     items.forEach(hookSync); syncItems = items;
     current = items; layout(items); return;
   }
@@ -638,7 +639,10 @@ $("checkCopy").addEventListener("click", async () => {
   setTimeout(() => { btn.textContent = "結果をコピー"; }, 2000);
 });
 $("showBar").addEventListener("click", () => setBare(false));
-let t; addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 150); });
+// 窓や枠の幅が変わったら、枠は作り直さず縮小率だけ測り直す（作り直すとサイトが読み込み直され、スクロールの位置も消える）
+let t; const relayout = () => { clearTimeout(t); t = setTimeout(() => { if (current.length) layout(current); else render(); }, 120); };
+addEventListener("resize", relayout);
+if (window.ResizeObserver) new ResizeObserver(relayout).observe($("stage"));
 
 (function init() {
   Object.assign(state, load("last", {}));
