@@ -132,7 +132,6 @@ body.checking #helpBtn { right: calc(360px + 12px); }
 #refWrap { display: none; }
 body.refmode #refWrap { display: flex; }
 body.refmode .only-normal, body.syncmode .only-normal, body.syncmode .only-single { display: none; }
-.device .cap .note { margin-left: 6px; color: var(--muted); font-size: 12px; }
 body:not(.refmode) .urlwrap > span { display: none; }
 body.refmode form.url { flex-wrap: wrap; }
 @media (max-width: 700px) { body.refmode .urlwrap { flex-basis: 100%; } }
@@ -406,98 +405,17 @@ function hookFresh(f) {
   });
 }
 
-// ---- スマホとPC：スクロールを合わせる ----
-// 触っている側（リーダー）の基準線（画面の上から 1/4）にある要素を探し、もう片方の同じ要素を同じ基準線まで動かす。
-// 同じ HTML なので要素の並び順で対応を取り、文言の頭が違えば前後を探す。中の箱（スワイプ型の .slider など）も内側から順に動かす。
-let syncItems = [], leader = null;
-const ANCHOR = "section, .page, header, footer, h1, h2, h3, h4, h5, p, li, dt, dd, img, figure, table, picture, video";
-function docOf(it) { try { const d = it.f.contentDocument; return d && d.body ? d : null; } catch (e) { return null; } }
-function anchorsOf(d) { return [...d.body.querySelectorAll(ANCHOR)]; }
-function keyOf(el) { return el.tagName + "|" + (el.textContent || el.getAttribute("src") || "").replace(/\s+/g, "").slice(0, 24); }
-function scrollersOf(el, d) {
-  const out = [], win = d.defaultView;
-  for (let n = el.parentElement; n && n !== d.body && n !== d.documentElement; n = n.parentElement) {
-    if (/(auto|scroll)/.test(win.getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight + 1) out.push(n);
-  }
-  out.push(d.scrollingElement || d.documentElement);
-  return out;
-}
-function syncFrom(src) {
-  const ds = docOf(src); if (!ds) return;
-  const ys = ds.defaultView.innerHeight / 4;
-  const list = anchorsOf(ds);
-  let idx = -1, ratio = 0;
-  for (let i = 0; i < list.length; i++) {   // 基準線を含むいちばん内側の要素（後に出てくるほど内側）
-    const r = list[i].getBoundingClientRect();
-    if (r.height > 0 && r.width > 0 && r.top <= ys && r.bottom > ys) { idx = i; ratio = (ys - r.top) / r.height; }
-  }
-  if (idx < 0) return;
-  const key = keyOf(list[idx]);
-  for (const it of syncItems) {
-    if (it === src) continue;
-    const d = docOf(it); if (!d) continue;
-    const l2 = anchorsOf(d);
-    let j = idx;
-    if (!l2[j] || keyOf(l2[j]) !== key) {   // 並びがずれていたら前後 30 個から同じ文言の頭を探す
-      j = -1;
-      for (let k = 1; k <= 30 && j < 0; k++) { for (const c of [idx - k, idx + k]) if (l2[c] && keyOf(l2[c]) === key) { j = c; break; } }
-      if (j < 0) j = Math.min(idx, l2.length - 1);
-    }
-    let el = l2[j], r = ratio;
-    while (el && el.getBoundingClientRect().height === 0 && j < l2.length - 1) { el = l2[++j]; r = 0; }   // PC で隠れている要素は次の要素へ
-    if (!el) continue;
-    const rect = el.getBoundingClientRect();
-    let delta = rect.top + rect.height * r - d.defaultView.innerHeight / 4;
-    for (const sc of scrollersOf(el, d)) {   // 内側の箱から動かし、動ききらない分を外側へ
-      if (Math.abs(delta) < 1) break;
-      const before = sc.scrollTop;
-      sc.scrollTo({ top: before + delta, behavior: "instant" });
-      delta -= sc.scrollTop - before;
-    }
-  }
-}
-function hookSync(it) {
-  let raf = 0, last = "";
-  // rAF は見えていない間は止まるので、短いタイマーで間引く（触る側が替わっていたら合わせない）
-  // 止まったあとにも 0.4 秒・1.2 秒後に合わせ直す（飛んだ先で遅れて読み込まれた画像の分だけ位置がずれるため）
-  let late = [];
-  const onScroll = () => {
-    if (leader !== it) return;
-    late.forEach(clearTimeout);
-    late = [400, 1200].map((ms) => setTimeout(() => { if (leader === it) syncFrom(it); }, ms));
-    if (raf) return;
-    raf = setTimeout(() => { raf = 0; if (leader === it) syncFrom(it); }, 30);
-  };
-  const lead = () => { leader = it; };
-  it.f.addEventListener("load", () => {
-    const d = docOf(it);
-    if (!d) {   // 別のドメインのサイトは中を見られない
-      if (!it.b.parentElement.querySelector(".note")) { const n = document.createElement("span"); n.className = "note"; n.textContent = "（このサイトはスクロールを合わせられません）"; it.b.parentElement.append(n); }
-      return;
-    }
-    d.addEventListener("scroll", onScroll, { capture: true, passive: true });
-    for (const ev of ["wheel", "touchstart", "pointerdown", "keydown"]) d.addEventListener(ev, lead, { capture: true, passive: true });
-    // リーダーがページを移ったら、もう片方も同じページへ
-    const here = d.location.href.split("#")[0];
-    if (leader === it && here !== last) {
-      for (const o of syncItems) { const od = docOf(o); if (o !== it && od && od.location.href.split("#")[0] !== here) o.f.contentWindow.location.href = d.location.href; }
-    }
-    last = here;
-  });
-}
 
 function render() {
-  const stage = $("stage"); stage.textContent = ""; syncItems = []; leader = null;
+  const stage = $("stage"); stage.textContent = "";
   if (state.mode === "sync") {
     if (!state.url) {
       const d = document.createElement("div"); d.className = "empty";
       d.innerHTML = "<h2>スマホとPC：URL を入れて「表示」を押してください</h2>" +
-        "<p>同じサイトを PC（左）と iPhone（右）の幅で並べ、片方をスクロールすると、もう片方も同じ場所（見出し・セクション）まで動きます。片方でページを移ると、もう片方も同じページへ移ります。</p>" +
-        "<p class=\"note\">スクロールを合わせられるのは、hse-inc.github.io で公開したサイト（確認用 GitHub）だけです。ほかのドメインのサイトは並べて表示するだけになります。</p>";
+        "<p>同じサイトを PC（左）と iPhone（右）の幅で、同じ縮小率で並べます。レスポンシブの崩れを、PC とスマホで同時に確かめられます。</p>";
       stage.append(d); current = []; return;
     }
     const items = ["pc", "ip"].map((id) => { const p = PRESETS.find((x) => x.id === id); return device(p.w, p.h, p.label); });
-    items.forEach(hookSync); syncItems = items;
     current = items; layout(items); return;
   }
   if (state.mode === "ref") {
